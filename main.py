@@ -1,6 +1,6 @@
-import random
 import sys
 import gym
+#import numpy as np
 from RandomAgent import RandomAgent
 
 def main():
@@ -15,6 +15,7 @@ def main():
     env = gym.make(environment)
 
     agent = RandomAgent(env)
+    scores = []
 
     for i_episode in range(episodes):
         # Get initial observation.
@@ -38,8 +39,13 @@ def main():
             agent.update(prev_state, next_action, reward, observation)
 
             if done or t == 199:
-                print score
+                if len(scores) >= 100:
+                    scores.pop(0)
+
+                scores.append(score)
+                #print np.average(scores)
                 break
+    
     return
 
 if __name__ == "__main__":
