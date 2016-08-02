@@ -12,9 +12,15 @@ def main():
     if len(sys.argv) > 2:
         episodes = int(sys.argv[2])
 
+    goal = 195
+    if len(sys.argv) > 3:
+        goal = int(sys.argv[3])
+
+    time = 200
+
     env = gym.make(environment)
 
-    agent = QLAgent(env)
+    agent = QLAgent(env, time)
     scores = []
 
     for i_episode in range(episodes):
@@ -23,8 +29,8 @@ def main():
 
         score = 0
 
-        # Run 200 time steps
-        for t in range(200):
+        # Run n = time steps
+        for t in range(time):
             # Save the previous state.
             prev_state = observation
 
@@ -37,6 +43,10 @@ def main():
 
             score += reward
 
+            if done:
+                print score
+                reward = t - goal
+
             agent.update(prev_state, next_action, reward, observation)
 
             if done or t == 199:
@@ -47,6 +57,8 @@ def main():
 
                 if (i_episode + 1) % 100 == 0:
                     print '{0} average score at {1}'.format(np.average(scores), i_episode + 1)
+                
+                agent.reset()
                 
                 break
     

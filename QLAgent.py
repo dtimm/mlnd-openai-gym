@@ -17,15 +17,21 @@ def state_from_observation(observation):
 
 
 class QLAgent:
-    def __init__(self, env):
+    def __init__(self, env, time):
         self.env = env
         self.q_states = {}
         self.q_experience = {}
-        self.alpha = 0.5
-        self.gamma = 0.6
+        self.alpha = 0.2
+        self.gamma = 0.9
+        self.time = time
+        self.timeleft = 200
+
+    def reset(self):
+        self.timeleft = self.time
+        return
 
     def get_cumulative_reward(self, state, action):
-        i = 200
+        i = self.timeleft
         c_gamma = 1.0
         c_reward = 0.0
         next_action = action
@@ -49,10 +55,13 @@ class QLAgent:
                         next_action = max(self.q_states[state], key=self.q_states[state].get)
                     else:
                         i = 0
+                        break
                 else:
                     i = 0
+                    break
             else:
                 i = 0
+                break
 
         return c_reward
 
@@ -98,6 +107,8 @@ class QLAgent:
         return self.env.action_space.sample()
     
     def update(self, obs, action, reward, obs_prime):
+        self.timeleft -= 1
+
         state = state_from_observation(obs)
         state_prime = state_from_observation(obs_prime)
 
@@ -106,9 +117,11 @@ class QLAgent:
         self.q_experience[state][action] = state_prime
 
         next_best = self.get_cumulative_reward(state, action)
-
+        
+        if next_best < -1.0:
+            next_best = -1.0
         if next_best > 1.0:
-            next = 1.0
+            next_best = 1.0
         
         self.q_states[state][action] = (1.0 - self.alpha) * self.q_states[state][action] + \
                             self.alpha * (reward + next_best)
