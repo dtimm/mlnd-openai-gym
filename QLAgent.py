@@ -20,18 +20,41 @@ class QLAgent:
     def __init__(self, env):
         self.env = env
         self.q_states = {}
+        self.q_experience = {}
         self.alpha = 0.5
-        self.gamma = 0.95
+        self.gamma = 0.6
 
-    def state_from_observation(observation):
-        state = ()
-        for val in observation:
-            temp_value = round(val * 4.0)/4.0
-            if temp_value == -0.0:
-                temp_value = 0.0
-            state += (temp_value, )
+    def get_cumulative_reward(self, state, action):
+        i = 200
+        c_gamma = 1.0
+        c_reward = 0.0
+        next_action = action
 
-        return state
+        c_reward += self.q_states[state][action]
+
+        while i > 0:
+            i -= 1
+            c_gamma *= self.gamma
+
+            if state not in self.q_states.keys():
+                i = 0
+                break
+
+            c_reward += c_gamma * self.q_states[state][next_action]
+
+            if state in self.q_experience.keys():
+                if next_action in self.q_experience[state].keys():
+                    state = self.q_experience[state][next_action]
+                    if state in self.q_states.keys():
+                        next_action = max(self.q_states[state], key=self.q_states[state].get)
+                    else:
+                        i = 0
+                else:
+                    i = 0
+            else:
+                i = 0
+
+        return c_reward
 
     def get_action(self, obs):
         state = state_from_observation(obs)
@@ -78,10 +101,15 @@ class QLAgent:
         state = state_from_observation(obs)
         state_prime = state_from_observation(obs_prime)
 
-        next_best = 1.0
-        if state_prime in self.q_states.keys():
-            next_best = max(self.q_states[state_prime].values())
+        if state not in self.q_experience.keys():
+            self.q_experience[state] = {}
+        self.q_experience[state][action] = state_prime
+
+        next_best = self.get_cumulative_reward(state, action)
+
+        if next_best > 1.0:
+            next = 1.0
         
         self.q_states[state][action] = (1.0 - self.alpha) * self.q_states[state][action] + \
-                            self.alpha * (reward + self.gamma * next_best)
+                            self.alpha * (reward + next_best)
         return
