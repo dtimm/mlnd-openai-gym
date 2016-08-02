@@ -34,6 +34,7 @@ def main():
             # Save the previous state.
             prev_state = observation
 
+            #env.render()
             if i_episode % 500 == 0:
                 env.render()
 
@@ -43,11 +44,7 @@ def main():
 
             score += reward
 
-            if done:
-                print score
-                reward = t - goal
-
-            agent.update(prev_state, next_action, reward, observation)
+            agent.update(prev_state, next_action, reward, observation, done)
 
             if done or t == 199:
                 while len(scores) >= 100:
@@ -55,8 +52,14 @@ def main():
 
                 scores.append(score)
 
+                running_avg = np.average(scores)
+                if running_avg > goal:
+                    print '100-run average {0} on run {1}!'.format(\
+                        running_avg, i_episode + 1)
+
                 if (i_episode + 1) % 100 == 0:
-                    print '{0} average score at {1}'.format(np.average(scores), i_episode + 1)
+                    print '{0} average score at {1}'.format(running_avg, \
+                        i_episode + 1)
                 
                 agent.reset()
                 
