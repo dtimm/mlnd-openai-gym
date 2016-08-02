@@ -1,7 +1,7 @@
 import sys
 import gym
 import numpy as np
-from QLAgent import QLAgent
+from NAFAgent import NAFAgent
 
 def main():
     environment = 'CartPole-v0'
@@ -20,7 +20,7 @@ def main():
 
     env = gym.make(environment)
 
-    agent = QLAgent(env, time)
+    agent = NAFAgent(env)
     scores = []
 
     for i_episode in range(episodes):
