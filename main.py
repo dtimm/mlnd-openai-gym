@@ -25,6 +25,7 @@ def main():
 
     for i_episode in range(episodes):
         # Get initial observation.
+        agent.reset()
         observation = env.reset()
 
         score = 0
@@ -60,9 +61,7 @@ def main():
                 if (i_episode + 1) % 100 == 0:
                     print '{0} average score at {1}'.format(running_avg, \
                         i_episode + 1)
-                
-                agent.reset()
-                
+                                
                 break
     
     return
