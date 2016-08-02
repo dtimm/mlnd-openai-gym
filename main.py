@@ -1,7 +1,7 @@
 import sys
 import gym
-#import numpy as np
-from RandomAgent import RandomAgent
+import numpy as np
+from QLAgent import QLAgent
 
 def main():
     environment = 'CartPole-v0'
@@ -14,7 +14,7 @@ def main():
 
     env = gym.make(environment)
 
-    agent = RandomAgent(env)
+    agent = QLAgent(env)
     scores = []
 
     for i_episode in range(episodes):
@@ -43,7 +43,7 @@ def main():
                     scores.pop(0)
 
                 scores.append(score)
-                #print np.average(scores)
+                print np.average(scores)
                 break
     
     return
