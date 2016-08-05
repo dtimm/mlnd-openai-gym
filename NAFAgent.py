@@ -14,13 +14,13 @@ def softmax(x):
 class NAFAgent:
     def __init__(self, env):
         # Initialive discounts, networks, EVERYTHING!
-        self.gamma = 0.95
+        self.gamma = 0.99
         self.tau = 0.01
         self.epsilon = 1.0
         self.epsilon_decay = 0.9
 
         self.update_samples = 100
-        self.update_steps = 50
+        self.update_steps = 10
         self.env = env
         self.tf_sess = tf.InteractiveSession()
         
@@ -47,6 +47,7 @@ class NAFAgent:
             # Create tau update functions
             self.update_vars[nqn_p_var.name] = nqn_p_var.assign\
                     (self.tau * nqn_var + (1. - self.tau) * nqn_p_var)
+        print self.update_vars.keys()
         
         # Replay buffer
         self.replay = []
@@ -63,11 +64,15 @@ class NAFAgent:
                             name='actions')
 
             # hidden layers
-            hidden_nodes = 100
+            hidden_nodes = 50
             hid0 = fully_connected(networks['x'], hidden_nodes, \
-                weights_initializer=tf.constant_initializer(0.5))
+                weights_initializer=tf.random_normal_initializer(0.5, 1.0), \
+                biases_initializer=tf.random_normal_initializer(0.5, 1.0), \
+                activation_fn=tf.tanh)
             hid1 = fully_connected(hid0, hidden_nodes, \
-                weights_initializer=tf.constant_initializer(0.5))
+                weights_initializer=tf.random_normal_initializer(0.5, 1.0), \
+                biases_initializer=tf.random_normal_initializer(0.5, 1.0), \
+                activation_fn=tf.tanh)
 
             # Output parameters
             networks['V'] = fully_connected(hid1, 1)
@@ -137,13 +142,13 @@ class NAFAgent:
         action = self.tf_sess.run(self.network['nqn']['mu'], \
                         feed_dict={self.network['nqn']['x']: [state]})
         
-        print state, action
+        #print state, action
         # Softmax and add noise.
         softly = softmax(action[0] + np.random.normal(0, self.epsilon, self.actions))
 
         # Pick the best.
         action = np.argmax(softly)
-        print softly, action, self.epsilon
+        #print action
 
         return action
     
