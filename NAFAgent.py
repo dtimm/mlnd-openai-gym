@@ -2,7 +2,9 @@ import random
 import gym
 import numpy as np
 import tensorflow as tf
+
 from tensorflow.contrib.layers import fully_connected
+from tensorflow.contrib.framework import get_variables
 
 def softmax(x):
     e_x = np.exp(x - np.max(x))
@@ -12,7 +14,13 @@ def softmax(x):
 class NAFAgent:
     def __init__(self, env):
         # Initialive discounts, networks, EVERYTHING!
-        self.gamma = 0.2
+        self.gamma = 0.95
+        self.tau = 0.01
+        self.epsilon = 1.0
+        self.epsilon_decay = 0.9
+
+        self.update_samples = 100
+        self.update_steps = 50
         self.env = env
         self.tf_sess = tf.InteractiveSession()
         
@@ -22,98 +30,132 @@ class NAFAgent:
             self.actions = self.env.action_space.n
         else:
             self.actions = self.env.action_space.shape[0]
+
+        self.network = {}
+        for name in ['nqn', 'nqn_p']:
+            self.create_network(name)
         
-        # Input parameters
-        self.nqn_x = tf.placeholder(tf.float32, shape=[None, self.states], \
-                        name='states')
-        self.nqn_u = tf.placeholder(tf.float32, shape=[None, self.actions], \
-                        name='actions')
-                        
-        # hidden layers
-        hidden_nodes = 100
-        hid0 = fully_connected(self.nqn_x, hidden_nodes)
-        hid1 = fully_connected(hid0, hidden_nodes)
-
-        # Output parameters
-        self.nqn_V = fully_connected(hid1, 1, scope='V')
-        self.nqn_mu = fully_connected(hid1, self.actions, scope='mu')
-        l = fully_connected(hid1, (self.actions * (self.actions + 1))/2, scope='l')
-        
-        # Build A(x, u)
-        axis_T = 0
-        rows = []
-
-        # Identify diagonal 
-        for i in xrange(self.actions):
-            count = self.actions - i
-            print i, count, axis_T
-            # Slice out diagonal rows for exponentiation.
-            diag = tf.exp(tf.slice(l, (0, axis_T), (-1, 1)))
-            others = tf.slice(l, (0, axis_T + 1), (-1, count - 1))
-
-            print diag
-            print others
-            row = tf.pad(tf.concat(1, (diag, others)), \
-                            ((0, 0), (i, 0)))
-
-            # Add each diagonal row to a list for L(x)
-            rows.append(row)
-
-            axis_T += count
-
-        # Assemble L(x) and matmul by its transpose.
-        self.nqn_L = tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
-        P = tf.batch_matmul(self.nqn_L, tf.transpose(self.nqn_L, (0, 2, 1)))
-
-        mu_u = tf.expand_dims(self.nqn_u - self.nqn_mu, -1)
-
-        # Combine the terms
-        A = (-1./2.) * tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), \
-                        tf.batch_matmul(P, mu_u))
-
-        # Finally convert it back to a useable tensor...
-        self.nqn_A = tf.reshape(A, [-1, 1])
-
-        self.nqn_Q = self.nqn_A + self.nqn_V
-
-        # Describe loss functions.
-        self.nqn_y_ = tf.placeholder(tf.float32, [None], name='y_i')
-        self.nqn_loss = tf.reduce_mean(tf.squared_difference(self.nqn_y_, \
-                        tf.squeeze(self.nqn_Q)), name='loss')
-
         self.tf_sess.run(tf.initialize_all_variables())
+        
+        # Buld update network:
+        self.update_vars = {}
+        for nqn_var, nqn_p_var in zip(self.network['nqn']['vars'], \
+                self.network['nqn_p']['vars']):
+            # Set initial values.
+            self.tf_sess.run(nqn_p_var.assign(nqn_var))
 
-        # GradientDescent
-        self.gdo = tf.train.GradientDescentOptimizer(learning_rate=0.1) \
-                        .minimize(self.nqn_loss)
-
+            # Create tau update functions
+            self.update_vars[nqn_p_var.name] = nqn_p_var.assign\
+                    (self.tau * nqn_var + (1. - self.tau) * nqn_p_var)
+        
         # Replay buffer
         self.replay = []
+
+    def create_network(self, name):
+        networks = {}
+
+        with tf.variable_scope(name):
+
+            # Input parameters
+            networks['x'] = tf.placeholder(tf.float32, shape=[None, self.states], \
+                            name='states')
+            networks['u'] = tf.placeholder(tf.float32, shape=[None, self.actions], \
+                            name='actions')
+
+            # hidden layers
+            hidden_nodes = 100
+            hid0 = fully_connected(networks['x'], hidden_nodes, \
+                weights_initializer=tf.constant_initializer(0.5))
+            hid1 = fully_connected(hid0, hidden_nodes, \
+                weights_initializer=tf.constant_initializer(0.5))
+
+            # Output parameters
+            networks['V'] = fully_connected(hid1, 1)
+            networks['mu'] = fully_connected(hid1, self.actions)
+            l = fully_connected(hid1, (self.actions * (self.actions + 1))/2)
+            
+            # Build A(x, u)
+            axis_T = 0
+            rows = []
+
+            # Identify diagonal 
+            for i in xrange(self.actions):
+                count = self.actions - i
+                #print i, count, axis_T
+                # Slice out diagonal rows for exponentiation.
+                diag = tf.exp(tf.slice(l, (0, axis_T), (-1, 1)))
+                others = tf.slice(l, (0, axis_T + 1), (-1, count - 1))
+
+                row = tf.pad(tf.concat(1, (diag, others)), \
+                                ((0, 0), (i, 0)))
+
+                # Add each diagonal row to a list for L(x)
+                rows.append(row)
+
+                axis_T += count
+
+            # Assemble L(x) and matmul by its transpose.
+            networks['L'] = tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
+            P = tf.batch_matmul(networks['L'], tf.transpose(networks['L'], (0, 2, 1)))
+
+            mu_u = tf.expand_dims(networks['u'] - networks['mu'], -1)
+
+            # Combine the terms
+            A = (-1./2.) * tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), \
+                            tf.batch_matmul(P, mu_u))
+
+            # Finally convert it back to a useable tensor...
+            networks['A'] = tf.reshape(A, [-1, 1])
+
+            networks['Q'] = networks['A'] + networks['V']
+
+            # Describe loss functions.
+            networks['y_'] = tf.placeholder(tf.float32, [None, 1], name='y_i')
+            networks['loss'] = tf.reduce_mean(tf.squared_difference(networks['y_'], \
+                            tf.squeeze(networks['Q'])), name='loss')
+
+            # GradientDescent
+            networks['gdo'] = tf.train.AdamOptimizer(learning_rate=0.001) \
+                        .minimize(networks['loss'])
+        
+        self.network[name] = networks
+        self.network[name]['vars'] = get_variables(name)
+
+        return
+
+    def update_target(self):
+        for variable in self.network['nqn_p']['vars']:
+            self.tf_sess.run(self.update_vars[variable.name])
+        return
     
     def reset(self):
+        self.epsilon *= self.epsilon_decay
         return
 
     def get_action(self, state):
         # Get values for all actions.
-        action = self.tf_sess.run(self.nqn_mu, feed_dict={self.nqn_x: [state]})
-
+        action = self.tf_sess.run(self.network['nqn']['mu'], \
+                        feed_dict={self.network['nqn']['x']: [state]})
+        
+        print state, action
         # Softmax and add noise.
-        softly = softmax(action[0]) + np.random.normal(0, 0.1, self.actions)
-        #print softly
+        softly = softmax(action[0] + np.random.normal(0, self.epsilon, self.actions))
 
         # Pick the best.
         action = np.argmax(softly)
+        print softly, action, self.epsilon
 
         return action
     
     def update(self, state, action, reward, state_prime, done):
+        if done:
+            reward = 0.
+
         self.replay.append((state, action, reward, state_prime))
+        #print action, reward, done
+        m = self.update_samples
 
-        m = 100
-        #if len(self.replay) < m:
-        #    return 
-
-        for _ in range(10):
+        for _ in range(self.update_steps):
             # Get m samples from self.replay
             if m > len(self.replay):
                 m = len(self.replay)
@@ -135,20 +177,25 @@ class NAFAgent:
                 # self.nqn_y_ fed from r + self.gamma * V'(s_p)
                 y_.append(replay[2])
             
-            V_p = self.tf_sess.run(self.nqn_V, feed_dict={self.nqn_x: x_p})
-            y_ += self.gamma * V_p
-            y_ = y_[0]
-
-            #print u, y_
+            V_p = self.tf_sess.run(self.network['nqn_p']['V'], \
+                    feed_dict={self.network['nqn_p']['x']: x_p})
+            
+            y_ = [[temp1 + temp2[0]] for temp1, temp2 in zip(y_, self.gamma * V_p)]
+            
+            #print 'u: {0}, y_:{1}'.format(u, y_)
             # minimize nqn_L for y_i, x, u.
-            self.tf_sess.run([self.nqn_loss, self.gdo, self.nqn_Q, \
-                              self.nqn_V, self.nqn_A], feed_dict={
-                self.nqn_x: x,
-                self.nqn_u: u,
-                self.nqn_y_: y_
+            self.tf_sess.run([self.network['nqn']['gdo'], \
+                              self.network['nqn']['Q'], \
+                              self.network['nqn']['V'], \
+                              self.network['nqn']['A'], \
+                              self.network['nqn']['loss']], \
+                feed_dict={
+                    self.network['nqn']['x']: x,
+                    self.network['nqn']['u']: u,
+                    self.network['nqn']['y_']: y_
                 })
 
-
-        # update target network. 
+            # update target network. 
+            self.update_target()
 
         return
