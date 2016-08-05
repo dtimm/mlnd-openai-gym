@@ -11,6 +11,8 @@ def softmax(x):
 
 class NAFAgent:
     def __init__(self, env):
+        # Initialive discounts, networks, EVERYTHING!
+        self.gamma = 0.2
         self.env = env
         self.tf_sess = tf.InteractiveSession()
         
@@ -72,9 +74,15 @@ class NAFAgent:
 
         self.nqn_Q = self.nqn_A + self.nqn_V
 
+        # Describe loss functions.
         self.nqn_y_ = tf.placeholder(tf.float32, [None], name='y_i')
         self.nqn_loss = tf.reduce_mean(tf.squared_difference(self.nqn_y_, \
                         tf.squeeze(self.nqn_Q)), name='loss')
+
+        self.tf_sess.run(tf.initialize_all_variables())
+
+        # GradientDescent
+        self.gdo = tf.train.GradientDescentOptimizer(learning_rate=0.1).minimize(self.nqn_loss)
 
         # Replay buffer
         self.replay = []
@@ -88,6 +96,7 @@ class NAFAgent:
 
         # Softmax and add noise.
         softly = softmax(action[0]) + np.random.normal(0, 0.1, self.actions)
+        print softly
 
         # Pick the best.
         action = np.argmax(softly)
@@ -95,25 +104,37 @@ class NAFAgent:
         return action
     
     def update(self, state, action, reward, state_prime, done):
-        state.append(action)
-        self.replay.append((state, reward, state_prime))
-        for i in range(50):
+        self.replay.append((state, action, reward, state_prime))
+        for _ in range(50):
             # Get m samples from self.replay
             m = 50
             if m > len(self.replay):
                 m = len(self.replay)
             replays = random.sample(self.replay, m)
             x = []
+            u = []
             y_ = []
             for replay in replays:
                 x.append(replay[0])
 
-                # self.nqn_y_ fed from r + self.gamma * V'(s_p)
-                V_p = 0.5
-                expected = [replay[1] + self.gamma * V_p]
-                y_.append(expected)
+                # one-hot encode action.
+                u_tmp = [0] * self.actions
+                u_tmp[replay[1]] = 1.
+                u.append(u_tmp)
 
-            self.train_step.run(session=self.tf_sess, \
-                        feed_dict={self.nqn_x: x, self.nqn_y_: y_})
+                # self.nqn_y_ fed from r + self.gamma * V'(s_p)
+                V_p = self.tf_sess.run(self.nqn_V, feed_dict={self.nqn_x: [replay[3]]})
+                expected = replay[2] + self.gamma * V_p[0]
+
+                y_.append(expected[0])
+
+            print x, u, y_
+            # minimize nqn_L for y_i, x, u.
+            self.tf_sess.run([self.nqn_loss, self.gdo, self.nqn_Q, \
+                              self.nqn_V, self.nqn_A], feed_dict={
+                self.nqn_x: x,
+                self.nqn_u: u,
+                self.nqn_y_: y_
+                })
             # update theta Q' 
         return
