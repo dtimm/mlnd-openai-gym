@@ -47,7 +47,7 @@ class NAFAgent:
             # Create tau update functions
             self.update_vars[nqn_p_var.name] = nqn_p_var.assign\
                     (self.tau * nqn_var + (1. - self.tau) * nqn_p_var)
-        print self.update_vars.keys()
+
         
         # Replay buffer
         self.replay = []
@@ -66,18 +66,24 @@ class NAFAgent:
             # hidden layers
             hidden_nodes = 50
             hid0 = fully_connected(networks['x'], hidden_nodes, \
-                weights_initializer=tf.random_normal_initializer(0.5, 1.0), \
-                biases_initializer=tf.random_normal_initializer(0.5, 1.0), \
+                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
+                biases_initializer=tf.random_normal_initializer(0.01, 0.001), \
                 activation_fn=tf.tanh)
             hid1 = fully_connected(hid0, hidden_nodes, \
-                weights_initializer=tf.random_normal_initializer(0.5, 1.0), \
-                biases_initializer=tf.random_normal_initializer(0.5, 1.0), \
+                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
+                biases_initializer=tf.random_normal_initializer(0.01, 0.001), \
                 activation_fn=tf.tanh)
 
             # Output parameters
-            networks['V'] = fully_connected(hid1, 1)
-            networks['mu'] = fully_connected(hid1, self.actions)
-            l = fully_connected(hid1, (self.actions * (self.actions + 1))/2)
+            networks['V'] = fully_connected(hid1, 1, \
+                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
+                biases_initializer=tf.random_normal_initializer(0.01, 0.001))
+            networks['mu'] = fully_connected(hid1, self.actions, \
+                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
+                biases_initializer=tf.random_normal_initializer(0.01, 0.001))
+            l = fully_connected(hid1, (self.actions * (self.actions + 1))/2,
+                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
+                biases_initializer=tf.random_normal_initializer(0.01, 0.001))
             
             # Build A(x, u)
             axis_T = 0
@@ -120,7 +126,7 @@ class NAFAgent:
                             tf.squeeze(networks['Q'])), name='loss')
 
             # GradientDescent
-            networks['gdo'] = tf.train.AdamOptimizer(learning_rate=0.001) \
+            networks['gdo'] = tf.train.GradientDescentOptimizer(learning_rate=0.01) \
                         .minimize(networks['loss'])
         
         self.network[name] = networks
@@ -142,7 +148,7 @@ class NAFAgent:
         action = self.tf_sess.run(self.network['nqn']['mu'], \
                         feed_dict={self.network['nqn']['x']: [state]})
         
-        #print state, action
+        print state, action
         # Softmax and add noise.
         softly = softmax(action[0] + np.random.normal(0, self.epsilon, self.actions))
 
