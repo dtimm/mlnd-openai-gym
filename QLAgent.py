@@ -19,7 +19,7 @@ class QLAgent:
         # Initialive discounts, networks, EVERYTHING!
         self.gamma = 0.95
         self.epsilon = 1.0
-        self.epsilon_decay = 0.98
+        self.epsilon_decay = 0.995
 
         self.alpha = 0.005
 
@@ -31,13 +31,13 @@ class QLAgent:
         # Get state and action counts.
         self.states = self.env.observation_space.shape[0]
         if isinstance(self.env.action_space, gym.spaces.Discrete):
-            #self.actions = self.env.action_space.n
+            self.actions = self.env.action_space.n
             self.is_continuous = False
         else:
-            #self.actions = self.env.action_space.shape[0]
+            self.actions = self.env.action_space.shape[0]
             self.is_continuous = True
 
-        self.actions = 1
+        self.one_hot = self.tf_sess.run(tf.one_hot(range(self.actions), self.actions))
 
         self.create_network()
         
@@ -58,7 +58,7 @@ class QLAgent:
                             name='actions')
 
             # hidden layers
-            hidden_nodes = 100
+            hidden_nodes = 10
             init = 1./hidden_nodes/2
 
             hid0 = fully_connected(tf.concat(1, [x, u]), 10, \
@@ -97,22 +97,16 @@ class QLAgent:
 
     def get_action(self, state):
         # Get values for all actions.
-        action0 = self.tf_sess.run(self.tensors['Q'], \
-                        feed_dict={
-                            self.tensors['x']: [state], 
-                            self.tensors['u']: [[0]]
-                            })
-        action1 = self.tf_sess.run(self.tensors['Q'], \
-                        feed_dict={
-                            self.tensors['x']: [state], 
-                            self.tensors['u']: [[1]]
-                            })
-        action = [action0[0][0], action1[0][0]]
+        action = []
+        for act in xrange(self.actions):
+            action.append(self.tf_sess.run(self.tensors['Q'], \
+                            feed_dict={
+                                self.tensors['x']: [state], 
+                                self.tensors['u']: [self.one_hot[act]]
+                            })[0][0])
 
         action_sm = softmax(action)
-        #print action, action_sm
-        
-        action_sm += np.random.normal(0, self.epsilon, 2)
+        action_sm += np.random.normal(0, self.epsilon, self.actions)
         
         return np.argmax(action_sm)
     
@@ -122,10 +116,12 @@ class QLAgent:
             reward = -reward
 
         #print state, action, reward, state_prime
+        action = self.one_hot[action]
+        next_act = self.one_hot[self.get_action(state_prime)]
         reward_p = reward + self.gamma * self.tf_sess.run(self.tensors['Q'], \
                 feed_dict={
                     self.tensors['x']: [state_prime],
-                    self.tensors['u']: [[self.get_action(state_prime)]]
+                    self.tensors['u']: [next_act]
                 })[0][0]
 
         self.replay.append((state, action, reward, reward_p))
@@ -138,11 +134,11 @@ class QLAgent:
                 m = len(self.replay)
             replays = random.sample(self.replay, m)
             x = [state]
-            u = [[action]]
+            u = [action]
             y_ = [[reward_p]]
             for transition in replays:
                 x.append(transition[0])
-                u.append([transition[1]])
+                u.append(transition[1])
                 y_.append([transition[3]])
             
             # minimize loss for y_i, x, u.
