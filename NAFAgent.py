@@ -14,8 +14,8 @@ def softmax(x):
 class NAFAgent:
     def __init__(self, env):
         # Initialive discounts, networks, EVERYTHING!
-        self.gamma = 0.99
-        self.tau = 0.01
+        self.gamma = 0.95
+        self.tau = 0.1
         self.epsilon = 1.0
         self.epsilon_decay = 0.9
 
@@ -82,8 +82,8 @@ class NAFAgent:
                 weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
                 biases_initializer=tf.random_normal_initializer(0.01, 0.001))
             l = fully_connected(hid1, (self.actions * (self.actions + 1))/2,
-                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                biases_initializer=tf.random_normal_initializer(0.01, 0.001))
+                weights_initializer=tf.random_normal_initializer(0.02, 0.001), \
+                biases_initializer=tf.random_normal_initializer(0.02, 0.001))
             
             # Build A(x, u)
             axis_T = 0
@@ -92,22 +92,24 @@ class NAFAgent:
             # Identify diagonal 
             for i in xrange(self.actions):
                 count = self.actions - i
-                #print i, count, axis_T
-                # Slice out diagonal rows for exponentiation.
+
+                # Create a row with the diagonal elements exponentiated.
                 diag = tf.exp(tf.slice(l, (0, axis_T), (-1, 1)))
+                # Create the "other" elements of the row.
                 others = tf.slice(l, (0, axis_T + 1), (-1, count - 1))
 
+                # Assemble them into a full row.
                 row = tf.pad(tf.concat(1, (diag, others)), \
                                 ((0, 0), (i, 0)))
 
-                # Add each diagonal row to a list for L(x)
+                # Add each row to a list for L(x)
                 rows.append(row)
 
                 axis_T += count
 
             # Assemble L(x) and matmul by its transpose.
             networks['L'] = tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
-            P = tf.batch_matmul(networks['L'], tf.transpose(networks['L'], (0, 2, 1)))
+            networks['P'] = P = tf.batch_matmul(networks['L'], tf.transpose(networks['L'], (0, 2, 1)))
 
             mu_u = tf.expand_dims(networks['u'] - networks['mu'], -1)
 
@@ -193,13 +195,11 @@ class NAFAgent:
             
             y_ = [[temp1 + temp2[0]] for temp1, temp2 in zip(y_, self.gamma * V_p)]
             
+            #print 'L={0}'.format(self.tf_sess.run(self.network['nqn']['L'], feed_dict={self.network['nqn']['x']: x, self.network['nqn']['u']: u}))
+            
             #print 'u: {0}, y_:{1}'.format(u, y_)
             # minimize nqn_L for y_i, x, u.
-            self.tf_sess.run([self.network['nqn']['gdo'], \
-                              self.network['nqn']['Q'], \
-                              self.network['nqn']['V'], \
-                              self.network['nqn']['A'], \
-                              self.network['nqn']['loss']], \
+            self.tf_sess.run(self.network['nqn']['gdo'], \
                 feed_dict={
                     self.network['nqn']['x']: x,
                     self.network['nqn']['u']: u,
