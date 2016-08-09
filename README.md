@@ -5,8 +5,9 @@ Using Normalize Advantage Functions from http://arxiv.org/abs/1603.00748 to
 solve OpenAI Gym Classic Control environments.
 
 Dependencies:
+tensorflow r0.10
 ```
-pip install gym tensorflow
+pip install gym numpy
 ```
 
 To run the simulation, you can use the following commands:
