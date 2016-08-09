@@ -1,14 +1,14 @@
 import sys
 import gym
 import numpy as np
-from NAFAgent import NAFAgent
+from QLAgent import QLAgent
 
 def main():
     environment = 'CartPole-v0'
     if len(sys.argv) > 1:
         environment = sys.argv[1]
 
-    episodes = 50000
+    episodes = 5001
     if len(sys.argv) > 2:
         episodes = int(sys.argv[2])
 
@@ -20,7 +20,7 @@ def main():
 
     env = gym.make(environment)
 
-    agent = NAFAgent(env)
+    agent = QLAgent(env)
     scores = []
 
     for i_episode in range(episodes):
@@ -36,8 +36,8 @@ def main():
             prev_state = observation
 
             #env.render()
-            if i_episode % 500 == 0:
-                env.render()
+            #if i_episode % 500 == 0:
+            #    env.render()
 
             next_action = agent.get_action(observation)
 
@@ -45,22 +45,20 @@ def main():
 
             score += reward
 
-            agent.update(prev_state, next_action, reward, observation, done)
+            agent.update(prev_state, next_action, score, observation, done)
 
             if done or t == 199:
-                while len(scores) >= 100:
-                    scores.pop(0)
-
+                print i_episode, score
                 scores.append(score)
 
-                running_avg = np.average(scores)
-                if running_avg > goal:
-                    print '100-run average {0} on run {1}!'.format(\
-                        running_avg, i_episode + 1)
+                running_avg = np.average(scores[-100:])
+                #if running_avg > goal:
+                #    print '100-run average {0} on run {1}!'.format(\
+                #        running_avg, i_episode)
 
-                if (i_episode + 1) % 100 == 0:
-                    print '{0} average score at {1}'.format(running_avg, \
-                        i_episode + 1)
+                #if i_episode % 50 == 0:
+                #    print '{0} average score at {1}'.format(running_avg, \
+                #        i_episode)
                                 
                 break
     
