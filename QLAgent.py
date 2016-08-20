@@ -6,8 +6,6 @@ import gym
 import tensorflow as tf
 from tensorflow.contrib.framework import get_variables
 from tensorflow.contrib.layers import fully_connected
-from tensorflow.contrib.layers import convolution2d
-
 
 def softmax(x):
     e_x = np.exp(x - np.max(x))
@@ -17,14 +15,17 @@ def softmax(x):
 class QLAgent:
     def __init__(self, env):
         # Initialive discounts, networks, EVERYTHING!
-        self.gamma = 0.95
+        self.gamma = 0.6
         self.epsilon = 1.0
-        self.epsilon_decay = 0.98
+        self.epsilon_decay = 0.95
 
-        self.alpha = 0.005
+        self.alpha = 0.0005
+
+        self.hidden_layers = 3
+        self.hidden_nodes = 100
 
         self.update_samples = 100
-        self.update_steps = 5
+        self.update_steps = 10
         self.env = env
         self.tf_sess = tf.Session()
         
@@ -58,27 +59,25 @@ class QLAgent:
                             shape=[None, self.actions], name='actions')
 
             # hidden layers
-            hidden_nodes = 10
-            init = 1./hidden_nodes/self.actions
+            init = 1./self.hidden_nodes/self.actions
 
-            hid0 = fully_connected(tf.concat(1, [x, u]), hidden_nodes, \
+            hid = tf.concat(1, [x,  u])
+            hid = fully_connected(hid, self.hidden_nodes, \
                 weights_initializer=tf.random_normal_initializer(init, init/5), \
                 biases_initializer=tf.random_normal_initializer(init, init/5), \
                 activation_fn=tf.tanh)
-            hid1 = fully_connected(hid0, hidden_nodes * 2, \
-                weights_initializer=tf.random_normal_initializer(init, 0.01), \
-                biases_initializer=tf.random_normal_initializer(init, 0.01), \
-                activation_fn=tf.tanh)
-            hid2 = fully_connected(hid1, hidden_nodes, \
-                weights_initializer=tf.random_normal_initializer(init, init/5), \
-                biases_initializer=tf.random_normal_initializer(init, init/5), \
-                activation_fn=tf.tanh)
+
+            for i in xrange(self.hidden_layers-1):
+                hid = fully_connected(hid, self.hidden_nodes, \
+                    weights_initializer=tf.random_normal_initializer(init, init/5), \
+                    biases_initializer=tf.random_normal_initializer(init, init/5), \
+                    activation_fn=tf.nn.relu)
 
             # Output parameters
-            pos_layer = fully_connected(hid2, 1, \
+            pos_layer = fully_connected(hid, 1, \
                 weights_initializer=tf.random_normal_initializer(1./self.actions, 0.1), \
                 biases_initializer=tf.random_normal_initializer(1./self.actions, 0.1))
-            neg_layer = tf.neg(fully_connected(hid2, 1, \
+            neg_layer = tf.neg(fully_connected(hid, 1, \
                 weights_initializer=tf.random_normal_initializer(1./self.actions, 0.1), \
                 biases_initializer=tf.random_normal_initializer(1./self.actions, 0.1)))
 
@@ -86,6 +85,12 @@ class QLAgent:
 
             # Describe loss functions.
             y_ = networks['y_'] = tf.placeholder(tf.float32, [None, 1], name='y_i')
+
+
+            # Tensor outputs to calculate y_i values
+            networks['reward'] = tf.placeholder(tf.float32, [None, 1], name='reward')
+            networks['y_calc'] = tf.add(networks['reward'], tf.mul(Q, self.gamma))
+
             networks['loss'] = tf.reduce_mean(tf.squared_difference(y_, \
                             Q), name='loss')
                             
@@ -94,14 +99,13 @@ class QLAgent:
                         .minimize(networks['loss'])
         
         self.tensors = networks
-
         return
     
     def reset(self):
         self.epsilon *= self.epsilon_decay
         return
 
-    def get_action(self, state):
+    def get_action(self, state, report=False):
         # Get values for all actions.
         action = []
         for act in xrange(self.actions):
@@ -112,54 +116,18 @@ class QLAgent:
                             })
             action.append(temp[0][0])
         
-        #print 'Actions: {0}'.format(action)
+        if report:
+            print 'Actions: {0}'.format(action)
+
         action_sm = softmax(action)
         action_sm += np.random.normal(0, self.epsilon, self.actions)
         
         return np.argmax(action_sm)
 
-    def find_distant_state(self):
-        # Try 100 states
-        m = self.update_samples
-        if m > len(self.replay):
-            m = len(self.replay)
-        
-        states = random.sample(self.replay, m)
-
-        best_dist = -1.
-        best_state = None
-
-        for _ in xrange(100):
-            test = self.env.observation_space.sample()
-            nearest = float('inf')
-            near_state = None
-            for ts in states:
-                dist = self.state_distance(test, ts[0])
-                if dist < nearest:
-                    nearest = dist
-                    near_state = test
-                    
-            if nearest > best_dist:
-                best_dist = nearest
-                best_state = near_state
-        
-        return best_state
-
-    def state_distance(self, state0, state1):
-        dist = 0.
-        for elt0, elt1 in zip(state0, state1):
-            dist += (elt0 - elt1)**2
-        return dist
-
     def update(self, state, action, reward, state_prime, done):
         #reward = reward ** 1.5
         if done:
             reward = -reward
-
-        # Create a distant state and give it a high value.
-        if random.random() < self.epsilon:
-            distant = self.find_distant_state()
-        distant = None
 
         #print state, action, reward, state_prime
         action = self.one_hot[action]
@@ -171,8 +139,6 @@ class QLAgent:
                 })[0][0]
 
         #print state, action, reward, reward_p
-
-        self.replay.append((state, action, reward, reward_p))
 
         m = self.update_samples
 
@@ -187,16 +153,29 @@ class QLAgent:
             u = [action]
             y_ = [[reward_p]]
 
-            if distant != None:
-                for i in range(self.actions):
-                    x.append(distant)
-                    u.append(self.one_hot[i])
-                    y_.append([10.])
-                
+            nx = [state_prime]
+            nu = [next_act]
+            nr = [[reward]]
+
             for transition in replays:
+                #print transition
                 x.append(transition[0])
                 u.append(transition[1])
-                y_.append([transition[3]])
+
+                nx.append(transition[3])
+                nu.append(self.one_hot[self.get_action(transition[3])])
+                nr.append([transition[2]])
+                #y_.append([discount_r])
+
+            #print nr, nx
+            y_ = self.tf_sess.run(self.tensors['y_calc'], \
+                    feed_dict={
+                        self.tensors['x']: nx,
+                        self.tensors['u']: nu,
+                        self.tensors['reward']: nr
+                    })
+                
+            #print y_
 
             # minimize loss for y_i, x, u.
             self.tf_sess.run(self.tensors['optimize'], \
@@ -205,5 +184,7 @@ class QLAgent:
                     self.tensors['u']: u,
                     self.tensors['y_']: y_
                 })
+        
 
+        self.replay.append((state, action, reward, state_prime))
         return

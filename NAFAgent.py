@@ -15,12 +15,22 @@ class NAFAgent:
     def __init__(self, env):
         # Initialive discounts, networks, EVERYTHING!
         self.gamma = 0.95
-        self.tau = 0.1
+        self.tau = 0.05
         self.epsilon = 1.0
-        self.epsilon_decay = 0.9
+        self.epsilon_decay = 0.98
+
+        self.alpha = 0.0001
 
         self.update_samples = 100
         self.update_steps = 10
+
+        self.hidden_layers = 5
+        self.hidden_nodes = 20
+
+        print self.gamma, self.tau, self.epsilon, self.epsilon_decay, \
+            self.alpha, self.update_samples, self.update_steps, self.hidden_layers, \
+            self.hidden_nodes
+
         self.env = env
         self.tf_sess = tf.InteractiveSession()
         
@@ -36,6 +46,8 @@ class NAFAgent:
             self.create_network(name)
         
         self.tf_sess.run(tf.initialize_all_variables())
+
+        self.one_hot = self.tf_sess.run(tf.one_hot(range(2), 2))
         
         # Buld update network:
         self.update_vars = {}
@@ -64,26 +76,38 @@ class NAFAgent:
                             name='actions')
 
             # hidden layers
-            hidden_nodes = 50
-            hid0 = fully_connected(networks['x'], hidden_nodes, \
-                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                biases_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                activation_fn=tf.tanh)
-            hid1 = fully_connected(hid0, hidden_nodes, \
-                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                biases_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                activation_fn=tf.tanh)
+            init = 1./self.hidden_nodes/self.actions
+
+            hid = networks['x']
+            hid = fully_connected(hid, self.hidden_nodes, \
+                    weights_initializer=tf.random_normal_initializer(init, init/5), \
+                    biases_initializer=tf.random_normal_initializer(init, init/5), \
+                    activation_fn=tf.tanh)
+            for i in xrange(self.hidden_layers-1):
+                hid = fully_connected(hid, self.hidden_nodes, \
+                    weights_initializer=tf.random_normal_initializer(init, init/5), \
+                    biases_initializer=tf.random_normal_initializer(init, init/5), \
+                    activation_fn=tf.nn.relu)
+                
+                if i + 1 % 3 == 0:
+                    # softmax every third layer
+                    hid = tf.nn.softmax(hid)
+            
+            #hid = tf.nn.softmax(hid)
 
             # Output parameters
-            networks['V'] = fully_connected(hid1, 1, \
-                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                biases_initializer=tf.random_normal_initializer(0.01, 0.001))
-            networks['mu'] = fully_connected(hid1, self.actions, \
-                weights_initializer=tf.random_normal_initializer(0.01, 0.001), \
-                biases_initializer=tf.random_normal_initializer(0.01, 0.001))
-            l = fully_connected(hid1, (self.actions * (self.actions + 1))/2,
-                weights_initializer=tf.random_normal_initializer(0.02, 0.001), \
-                biases_initializer=tf.random_normal_initializer(0.02, 0.001))
+            networks['V'] = fully_connected(hid, self.actions, \
+                weights_initializer=tf.random_normal_initializer(1., 0.1), \
+                biases_initializer=tf.random_normal_initializer(0., 0.1))
+            networks['mu'] = fully_connected(hid, self.actions, \
+                weights_initializer=tf.random_normal_initializer(1., 0.1), \
+                biases_initializer=tf.random_normal_initializer(0., 0.1))
+            networks['mu_out'] = tf.nn.softmax(networks['mu'])
+
+            # Linear output layer
+            l = fully_connected(hid, (self.actions * (self.actions + 1))/2,
+                weights_initializer=tf.random_normal_initializer(1., 0.1), \
+                biases_initializer=tf.random_normal_initializer(0., 0.1))
             
             # Build A(x, u)
             axis_T = 0
@@ -109,18 +133,17 @@ class NAFAgent:
 
             # Assemble L(x) and matmul by its transpose.
             networks['L'] = tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
-            networks['P'] = P = tf.batch_matmul(networks['L'], tf.transpose(networks['L'], (0, 2, 1)))
+            networks['P'] = P = tf.batch_matmul(networks['L'], \
+                tf.transpose(networks['L'], (0, 2, 1)))
 
             mu_u = tf.expand_dims(networks['u'] - networks['mu'], -1)
 
             # Combine the terms
-            A = (-1./2.) * tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), \
-                            tf.batch_matmul(P, mu_u))
+            p_mu_u = tf.batch_matmul(P, mu_u, name='Pxmu_u')
+            p_mess = tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), p_mu_u, name='mu_u_TxPxmu_u')
+            networks['A'] = tf.mul(-1./2., p_mess, name='A')
 
-            # Finally convert it back to a useable tensor...
-            networks['A'] = tf.reshape(A, [-1, 1])
-
-            networks['Q'] = networks['A'] + networks['V']
+            networks['Q'] = tf.add(networks['A'], networks['V'], name='Q_func')
 
             # Describe loss functions.
             networks['y_'] = tf.placeholder(tf.float32, [None, 1], name='y_i')
@@ -128,7 +151,7 @@ class NAFAgent:
                             tf.squeeze(networks['Q'])), name='loss')
 
             # GradientDescent
-            networks['gdo'] = tf.train.GradientDescentOptimizer(learning_rate=0.01) \
+            networks['gdo'] = tf.train.AdamOptimizer(learning_rate=self.alpha, epsilon=0.5) \
                         .minimize(networks['loss'])
         
         self.network[name] = networks
@@ -145,24 +168,45 @@ class NAFAgent:
         self.epsilon *= self.epsilon_decay
         return
 
-    def get_action(self, state):
+    def get_action(self, state, report=False):
         # Get values for all actions.
-        action = self.tf_sess.run(self.network['nqn']['mu'], \
-                        feed_dict={self.network['nqn']['x']: [state]})
+        #action = []
+        #for act in xrange(self.actions):
+        #    temp = self.tf_sess.run(self.network['nqn']['Q'], \
+        #                    feed_dict={
+        #                        self.network['nqn']['x']: [state], 
+        #                        self.network['nqn']['u']: [self.one_hot[act]]
+        #                    })
+            #print temp
+            #if temp[0][0] <= 0.0:
+        #    report = True
+        #    action.append(temp[0][0])
         
-        print state, action
-        # Softmax and add noise.
-        softly = softmax(action[0] + np.random.normal(0, self.epsilon, self.actions))
+        
+        #action_sm = softmax(action)
 
-        # Pick the best.
-        action = np.argmax(softly)
-        #print action
+        #if report:
+            #print 'actions: {0}'.format(action)
+            #print 'softmax: {0}'.format(action_sm)
+            #print 'mu: {0}'.format(self.tf_sess.run(self.network['nqn']['mu'],\
+            #     feed_dict={self.network['nqn']['x']: [state]}))
 
-        return action
+        action = self.tf_sess.run(self.network['nqn']['mu'],\
+                 feed_dict={self.network['nqn']['x']: [state]})
+        action_sm = self.tf_sess.run(self.network['nqn']['mu_out'],\
+                 feed_dict={self.network['nqn']['x']: [state]})
+
+        if report:
+            print 'mu: {0}'.format(action)
+            print 'softmax: {0}'.format(action_sm)
+        
+        action_sm += np.random.normal(0, self.epsilon, self.actions)
+        
+        return np.argmax(action_sm)
     
     def update(self, state, action, reward, state_prime, done):
         if done:
-            reward = 0.
+            reward = -reward
 
         self.replay.append((state, action, reward, state_prime))
         #print action, reward, done
@@ -182,23 +226,21 @@ class NAFAgent:
 
                 x_p.append(replay[3])
 
-                # one-hot encode action.
-                u_tmp = [0] * self.actions
-                u_tmp[replay[1]] = 1.
-                u.append(u_tmp)
+                u.append(self.one_hot[replay[1]])
 
                 # self.nqn_y_ fed from r + self.gamma * V'(s_p)
                 y_.append(replay[2])
             
             V_p = self.tf_sess.run(self.network['nqn_p']['V'], \
                     feed_dict={self.network['nqn_p']['x']: x_p})
-            
+
+            #print y_, V_p
+
             y_ = [[temp1 + temp2[0]] for temp1, temp2 in zip(y_, self.gamma * V_p)]
-            
-            #print 'L={0}'.format(self.tf_sess.run(self.network['nqn']['L'], feed_dict={self.network['nqn']['x']: x, self.network['nqn']['u']: u}))
+            #print 'y_i: {0}'.format(y_)
             
             #print 'u: {0}, y_:{1}'.format(u, y_)
-            # minimize nqn_L for y_i, x, u.
+            # minimize loss function for y_i, x, u.
             self.tf_sess.run(self.network['nqn']['gdo'], \
                 feed_dict={
                     self.network['nqn']['x']: x,

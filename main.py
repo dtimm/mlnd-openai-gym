@@ -1,6 +1,7 @@
 import sys
 import gym
 import numpy as np
+from NAFAgent import NAFAgent
 from QLAgent import QLAgent
 
 def main():
@@ -38,17 +39,17 @@ def main():
             #env.render()
             #if i_episode % 500 == 0:
             #    env.render()
-
-            next_action = agent.get_action(observation)
+            report = (i_episode + 1) % 10 == 0 or i_episode == 0
+            next_action = agent.get_action(observation, report)
 
             observation, reward, done, info = env.step(next_action)
 
             score += reward
 
-            agent.update(prev_state, next_action, score, observation, done)
+            agent.update(prev_state, next_action, reward, observation, done)
 
             if done or t == 199:
-                print i_episode, score
+                print i_episode + 1, score
                 scores.append(score)
 
                 running_avg = np.average(scores[-100:])
@@ -56,9 +57,9 @@ def main():
                 #    print '100-run average {0} on run {1}!'.format(\
                 #        running_avg, i_episode)
 
-                #if i_episode % 50 == 0:
-                #    print '{0} average score at {1}'.format(running_avg, \
-                #        i_episode)
+                if (i_episode + 1) % 50 == 0:
+                    print '{0} average score at {1}'.format(running_avg, \
+                        i_episode + 1)
                                 
                 break
     
