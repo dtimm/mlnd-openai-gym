@@ -6,11 +6,6 @@ import tensorflow as tf
 from tensorflow.contrib.layers import fully_connected
 from tensorflow.contrib.framework import get_variables
 
-def softmax(x):
-    e_x = np.exp(x - np.max(x))
-    out = e_x / e_x.sum()
-    return out
-
 class NAFAgent:
     def __init__(self, env):
         # Initialive discounts, networks, EVERYTHING!
@@ -24,8 +19,8 @@ class NAFAgent:
         self.update_samples = 100
         self.update_steps = 10
 
-        self.hidden_layers = 5
-        self.hidden_nodes = 20
+        self.hidden_layers = 2
+        self.hidden_nodes = 100
 
         print self.gamma, self.tau, self.epsilon, self.epsilon_decay, \
             self.alpha, self.update_samples, self.update_steps, self.hidden_layers, \
@@ -47,7 +42,9 @@ class NAFAgent:
         
         self.tf_sess.run(tf.initialize_all_variables())
 
-        self.one_hot = self.tf_sess.run(tf.one_hot(range(2), 2))
+        if self.actions > 1:
+            self.one_hot = self.tf_sess.run(tf.one_hot(range(self.actions),
+                self.actions))
         
         # Buld update network:
         self.update_vars = {}
@@ -88,10 +85,6 @@ class NAFAgent:
                     weights_initializer=tf.random_normal_initializer(init, init/5), \
                     biases_initializer=tf.random_normal_initializer(init, init/5), \
                     activation_fn=tf.nn.relu)
-                
-                if i + 1 % 3 == 0:
-                    # softmax every third layer
-                    hid = tf.nn.softmax(hid)
             
             #hid = tf.nn.softmax(hid)
 
@@ -140,7 +133,8 @@ class NAFAgent:
 
             # Combine the terms
             p_mu_u = tf.batch_matmul(P, mu_u, name='Pxmu_u')
-            p_mess = tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), p_mu_u, name='mu_u_TxPxmu_u')
+            p_mess = tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), 
+                p_mu_u, name='mu_u_TxPxmu_u')
             networks['A'] = tf.mul(-1./2., p_mess, name='A')
 
             networks['Q'] = tf.add(networks['A'], networks['V'], name='Q_func')
@@ -151,8 +145,8 @@ class NAFAgent:
                             tf.squeeze(networks['Q'])), name='loss')
 
             # GradientDescent
-            networks['gdo'] = tf.train.AdamOptimizer(learning_rate=self.alpha, epsilon=0.5) \
-                        .minimize(networks['loss'])
+            networks['gdo'] = tf.train.AdamOptimizer(learning_rate=self.alpha,
+                epsilon=0.5).minimize(networks['loss'])
         
         self.network[name] = networks
         self.network[name]['vars'] = get_variables(name)
@@ -169,30 +163,22 @@ class NAFAgent:
         return
 
     def get_action(self, state, report=False):
-        # Get values for all actions.
-        #action = []
-        #for act in xrange(self.actions):
-        #    temp = self.tf_sess.run(self.network['nqn']['Q'], \
-        #                    feed_dict={
-        #                        self.network['nqn']['x']: [state], 
-        #                        self.network['nqn']['u']: [self.one_hot[act]]
-        #                    })
-            #print temp
-            #if temp[0][0] <= 0.0:
-        #    report = True
-        #    action.append(temp[0][0])
-        
-        
-        #action_sm = softmax(action)
-
-        #if report:
-            #print 'actions: {0}'.format(action)
-            #print 'softmax: {0}'.format(action_sm)
-            #print 'mu: {0}'.format(self.tf_sess.run(self.network['nqn']['mu'],\
-            #     feed_dict={self.network['nqn']['x']: [state]}))
-
         action = self.tf_sess.run(self.network['nqn']['mu'],\
                  feed_dict={self.network['nqn']['x']: [state]})
+
+        if self.actions == 1:
+            action = action[0][0] + np.random.normal(0, self.epsilon)
+            if report:
+                print 'mu: {0}'.format(action)
+            
+            # Bound the action
+            if action > self.env.action_space.high[0]:
+                action = self.env.action_space.high[0]
+            elif action < self.env.action_space.low[0]:
+                action = self.env.action_space.low[0]
+
+            return [action]
+
         action_sm = self.tf_sess.run(self.network['nqn']['mu_out'],\
                  feed_dict={self.network['nqn']['x']: [state]})
 
@@ -226,7 +212,10 @@ class NAFAgent:
 
                 x_p.append(replay[3])
 
-                u.append(self.one_hot[replay[1]])
+                if self.actions > 1:
+                    u.append(self.one_hot[replay[1]])
+                else:
+                    u.append(replay[1])
 
                 # self.nqn_y_ fed from r + self.gamma * V'(s_p)
                 y_.append(replay[2])

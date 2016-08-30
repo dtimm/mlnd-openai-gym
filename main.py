@@ -4,6 +4,7 @@ import numpy as np
 import argparse
 from NAFAgent import NAFAgent
 from QLAgent import QLAgent
+from RandomAgent import RandomAgent
 
 def main():
     parser = argparse.ArgumentParser()
@@ -17,6 +18,7 @@ def main():
         help='Time steps for each episode.')
     parser.add_argument('-a', '--agent', type=str, default='QL',
         help='Learning agent type (QL or NAF).')
+    parser.add_argument('--report', action='store_true', help='Report results.')
 
     args = parser.parse_args()
     print args
@@ -32,8 +34,14 @@ def main():
         agent = QLAgent(env)
     elif (args.agent == 'NAF'):
         agent = NAFAgent(env)
+    elif (args.agent == 'Random'):
+        agent = RandomAgent(env)
 
     scores = []
+
+    if args.report:
+        filename = 'tmp/gym-report'
+        env.monitor.start(filename, force=True)
 
     for i_episode in range(episodes):
         # Get initial observation.
@@ -55,11 +63,14 @@ def main():
 
             observation, reward, done, info = env.step(next_action)
 
+            if report:
+                print reward
+
             score += reward
 
             agent.update(prev_state, next_action, reward, observation, done)
 
-            if done or t == 199:
+            if done or t == time - 1:
                 print i_episode + 1, score
                 scores.append(score)
 
@@ -73,7 +84,17 @@ def main():
                         i_episode + 1)
                                 
                 break
-    
+
+    if args.report:
+        env.monitor.close()
+        key_file = open('api.key', 'r')
+        gym_key = key_file.readline()
+        if args.agent == 'NAF':
+            algo_id = 'alg_xjVArtUxQXqfSq5q89dRjQ'
+        else:
+            algo_id = 'alg_sbIxfyjIRUSBrBA1IOFg'
+        gym.upload(filename, api_key=gym_key, algorithm_id=algo_id)
+
     return
 
 if __name__ == "__main__":
