@@ -1,27 +1,38 @@
 import sys
 import gym
 import numpy as np
+import argparse
 from NAFAgent import NAFAgent
 from QLAgent import QLAgent
 
 def main():
-    environment = 'CartPole-v0'
-    if len(sys.argv) > 1:
-        environment = sys.argv[1]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-e', '--environment', type=str, default='CartPole-v0',
+        help='OpenAI Gym environment to run.')
+    parser.add_argument('-p', '--episodes', type=int, default=1000,
+        help='Number of episodes to simulate.')
+    parser.add_argument('-g', '--goal', type=int, default=195,
+        help='Goal score for the environment.')
+    parser.add_argument('-t', '--time', type=int, default=200,
+        help='Time steps for each episode.')
+    parser.add_argument('-a', '--agent', type=str, default='QL',
+        help='Learning agent type (QL or NAF).')
 
-    episodes = 5001
-    if len(sys.argv) > 2:
-        episodes = int(sys.argv[2])
+    args = parser.parse_args()
+    print args
 
-    goal = 195
-    if len(sys.argv) > 3:
-        goal = int(sys.argv[3])
-
-    time = 200
+    environment = args.environment
+    episodes = args.episodes
+    goal = args.goal
+    time = args.time
 
     env = gym.make(environment)
 
-    agent = QLAgent(env)
+    if (args.agent == 'QL'):
+        agent = QLAgent(env)
+    elif (args.agent == 'NAF'):
+        agent = NAFAgent(env)
+
     scores = []
 
     for i_episode in range(episodes):

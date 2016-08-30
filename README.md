@@ -13,7 +13,7 @@ pip install gym numpy
 To run the simulation, you can use the following commands:
 ```
 python main.py
-python main.py CartPole-v0
-python main.py MountainCar-v0
-python main.py Acrobot-v0
+python main.py -e CartPole-v0
+python main.py -e MountainCar-v0
+python main.py -e Acrobot-v0
 ```

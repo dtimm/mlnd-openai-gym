@@ -17,14 +17,14 @@ class QLAgent:
         # Initialive discounts, networks, EVERYTHING!
         self.gamma = 0.6
         self.epsilon = 1.0
-        self.epsilon_decay = 0.95
+        self.epsilon_decay = 0.98
 
         self.alpha = 0.0005
 
-        self.hidden_layers = 3
+        self.hidden_layers = 2
         self.hidden_nodes = 100
 
-        self.update_samples = 100
+        self.update_samples = 20
         self.update_steps = 10
         self.env = env
         self.tf_sess = tf.Session()
@@ -91,12 +91,13 @@ class QLAgent:
             networks['reward'] = tf.placeholder(tf.float32, [None, 1], name='reward')
             networks['y_calc'] = tf.add(networks['reward'], tf.mul(Q, self.gamma))
 
-            networks['loss'] = tf.reduce_mean(tf.squared_difference(y_, \
-                            Q), name='loss')
+            networks['mse'] = tf.reduce_mean(tf.squared_difference(y_, \
+                            Q), name='mse')
+            networks['cross_entropy'] = -tf.reduce_sum(y_ * tf.log(Q), name='cross_entropy')
                             
             networks['optimize'] = tf.train.AdamOptimizer(\
                         learning_rate=self.alpha) \
-                        .minimize(networks['loss'])
+                        .minimize(networks['mse'])
         
         self.tensors = networks
         return
