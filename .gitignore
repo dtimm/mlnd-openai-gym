@@ -93,3 +93,5 @@ ENV/
 
 # tmp directory
 tmp/
+
+.vscode/

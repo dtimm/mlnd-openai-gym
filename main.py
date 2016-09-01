@@ -19,6 +19,8 @@ def main():
     parser.add_argument('-a', '--agent', type=str, default='QL',
         help='Learning agent type (QL or NAF).')
     parser.add_argument('--report', action='store_true', help='Report results.')
+    parser.add_argument('-d', '--debug', action='store_true', 
+        help='Print max values at each time-step.')
 
     args = parser.parse_args()
     print args
@@ -58,7 +60,7 @@ def main():
             #env.render()
             #if i_episode % 500 == 0:
             #    env.render()
-            report = (i_episode + 1) % 10 == 0 or i_episode == 0
+            report = args.debug
             next_action = agent.get_action(observation, report)
 
             observation, reward, done, info = env.step(next_action)
