@@ -3,6 +3,8 @@ import gym
 import numpy as np
 import tensorflow as tf
 
+from collections import deque
+
 from tensorflow.contrib.layers import fully_connected
 from tensorflow.contrib.framework import get_variables
 
@@ -17,7 +19,7 @@ class NAFAgent:
         self.alpha = 0.0001
 
         self.update_samples = 100
-        self.update_steps = 10
+        self.update_steps = 50
 
         self.hidden_layers = 2
         self.hidden_nodes = 100
@@ -59,7 +61,7 @@ class NAFAgent:
 
         
         # Replay buffer
-        self.replay = []
+        self.replay = deque([])
 
     def create_network(self, name):
         networks = {}
@@ -195,6 +197,9 @@ class NAFAgent:
             reward = -reward
 
         self.replay.append((state, action, reward, state_prime))
+        if len(self.replay) > 1e6:
+            self.replay.popleft()
+
         #print action, reward, done
         m = self.update_samples
 

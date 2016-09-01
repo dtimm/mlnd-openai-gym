@@ -1,10 +1,10 @@
 import random
-
 import numpy as np
-
 import gym
 import tensorflow as tf
-from tensorflow.contrib.framework import get_variables
+
+from collections import deque
+
 from tensorflow.contrib.layers import fully_connected
 
 def softmax(x):
@@ -45,7 +45,7 @@ class QLAgent:
         self.tf_sess.run(tf.initialize_all_variables())
                 
         # Replay buffer
-        self.replay = []
+        self.replay = deque([])
 
     def create_network(self):
         networks = {}
@@ -188,4 +188,7 @@ class QLAgent:
         
 
         self.replay.append((state, action, reward, state_prime))
+        if len(self.replay) > 1e6:
+            self.replay.popleft()
+            
         return
