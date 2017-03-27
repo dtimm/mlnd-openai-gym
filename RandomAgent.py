@@ -9,7 +9,7 @@ class RandomAgent:
     def get_action(self, state, report=False):
         action = self.env.action_space.sample()
         if report:
-            print action
+            print(action)
         return action
     
     def update(self, state, action, reward, state_prime, done):

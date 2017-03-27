@@ -23,7 +23,7 @@ def main():
         help='Print max values at each time-step.')
 
     args = parser.parse_args()
-    print args
+    print(args)
 
     environment = args.environment
     episodes = args.episodes
@@ -51,6 +51,7 @@ def main():
         observation = env.reset()
 
         score = 0
+        alt_score = 0
 
         # Run n = time steps
         for t in range(time):
@@ -65,15 +66,18 @@ def main():
 
             observation, reward, done, info = env.step(next_action)
 
-            if report:
-                print reward
-
             score += reward
+
+            reward += observation[0]
+            if report:
+                print(reward)
+
+            alt_score += reward
 
             agent.update(prev_state, next_action, reward, observation, done)
 
             if done or t == time - 1:
-                print i_episode + 1, score
+                print(i_episode + 1, score, alt_score, t, done)
                 scores.append(score)
 
                 running_avg = np.average(scores[-100:])
@@ -82,8 +86,8 @@ def main():
                 #        running_avg, i_episode)
 
                 if (i_episode + 1) % 50 == 0:
-                    print '{0} average score at {1}'.format(running_avg, \
-                        i_episode + 1)
+                    print('{0} average score at {1}'.format(running_avg, \
+                        i_episode + 1))
                                 
                 break
 

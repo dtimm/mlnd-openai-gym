@@ -37,12 +37,12 @@ class QLAgent:
         else:
             self.actions = self.env.action_space.shape[0]
             self.is_continuous = True
-
-        self.one_hot = self.tf_sess.run(tf.one_hot(range(self.actions), self.actions))
-
+        
+        self.one_hot = [self.tf_sess.run(tf.one_hot(i, self.actions)) for i in range(self.actions)]
+        
         self.create_network()
         
-        self.tf_sess.run(tf.initialize_all_variables())
+        self.tf_sess.run(tf.global_variables_initializer())
                 
         # Replay buffer
         self.replay = deque([])
@@ -61,13 +61,13 @@ class QLAgent:
             # hidden layers
             init = 1./self.hidden_nodes/self.actions
 
-            hid = tf.concat(1, [x,  u])
+            hid = tf.concat([x,  u], axis=1)
             hid = fully_connected(hid, self.hidden_nodes, \
                 weights_initializer=tf.random_normal_initializer(init, init/5), \
                 biases_initializer=tf.random_normal_initializer(init, init/5), \
                 activation_fn=tf.tanh)
 
-            for i in xrange(self.hidden_layers-1):
+            for i in range(self.hidden_layers-1):
                 hid = fully_connected(hid, self.hidden_nodes, \
                     weights_initializer=tf.random_normal_initializer(init, init/5), \
                     biases_initializer=tf.random_normal_initializer(init, init/5), \
@@ -77,7 +77,7 @@ class QLAgent:
             pos_layer = fully_connected(hid, 1, \
                 weights_initializer=tf.random_normal_initializer(1./self.actions, 0.1), \
                 biases_initializer=tf.random_normal_initializer(1./self.actions, 0.1))
-            neg_layer = tf.neg(fully_connected(hid, 1, \
+            neg_layer = tf.negative(fully_connected(hid, 1, \
                 weights_initializer=tf.random_normal_initializer(1./self.actions, 0.1), \
                 biases_initializer=tf.random_normal_initializer(1./self.actions, 0.1)))
 
@@ -89,7 +89,7 @@ class QLAgent:
 
             # Tensor outputs to calculate y_i values
             networks['reward'] = tf.placeholder(tf.float32, [None, 1], name='reward')
-            networks['y_calc'] = tf.add(networks['reward'], tf.mul(Q, self.gamma))
+            networks['y_calc'] = tf.add(networks['reward'], tf.multiply(Q, self.gamma))
 
             networks['mse'] = tf.reduce_mean(tf.squared_difference(y_, \
                             Q), name='mse')
@@ -109,16 +109,12 @@ class QLAgent:
     def get_action(self, state, report=False):
         # Get values for all actions.
         action = []
-        for act in xrange(self.actions):
-            temp = self.tf_sess.run(self.tensors['Q'], \
-                            feed_dict={
-                                self.tensors['x']: [state], 
-                                self.tensors['u']: [self.one_hot[act]]
-                            })
+        for act in range(self.actions):
+            temp = self.tf_sess.run(self.tensors['Q'], feed_dict={self.tensors['x']: [state], self.tensors['u']: [self.one_hot[act]]})
             action.append(temp[0][0])
         
         if report:
-            print 'Actions: {0}'.format(action)
+            print('Actions: {0}'.format(action))
 
         action_sm = softmax(action)
         action_sm += np.random.normal(0, self.epsilon, self.actions)

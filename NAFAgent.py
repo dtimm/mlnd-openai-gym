@@ -18,15 +18,15 @@ class NAFAgent:
 
         self.alpha = 0.0001
 
-        self.update_samples = 100
-        self.update_steps = 50
+        self.update_samples = 200
+        self.update_steps = 10
 
         self.hidden_layers = 2
         self.hidden_nodes = 100
 
-        print self.gamma, self.tau, self.epsilon, self.epsilon_decay, \
+        print(self.gamma, self.tau, self.epsilon, self.epsilon_decay, \
             self.alpha, self.update_samples, self.update_steps, self.hidden_layers, \
-            self.hidden_nodes
+            self.hidden_nodes)
 
         self.env = env
         self.tf_sess = tf.InteractiveSession()
@@ -42,11 +42,10 @@ class NAFAgent:
         for name in ['nqn', 'nqn_p']:
             self.create_network(name)
         
-        self.tf_sess.run(tf.initialize_all_variables())
+        self.tf_sess.run(tf.global_variables_initializer())
 
         if self.actions > 1:
-            self.one_hot = self.tf_sess.run(tf.one_hot(range(self.actions),
-                self.actions))
+            self.one_hot = [self.tf_sess.run(tf.one_hot(i, self.actions)) for i in range(self.actions)]
         
         # Buld update network:
         self.update_vars = {}
@@ -82,7 +81,7 @@ class NAFAgent:
                     weights_initializer=tf.random_normal_initializer(init, init/5), \
                     biases_initializer=tf.random_normal_initializer(init, init/5), \
                     activation_fn=tf.tanh)
-            for i in xrange(self.hidden_layers-1):
+            for i in range(self.hidden_layers-1):
                 hid = fully_connected(hid, self.hidden_nodes, \
                     weights_initializer=tf.random_normal_initializer(init, init/5), \
                     biases_initializer=tf.random_normal_initializer(init, init/5), \
@@ -100,7 +99,7 @@ class NAFAgent:
             networks['mu_out'] = tf.nn.softmax(networks['mu'])
 
             # Linear output layer
-            l = fully_connected(hid, (self.actions * (self.actions + 1))/2,
+            l = fully_connected(hid, int((self.actions * (self.actions + 1))/2), \
                 weights_initializer=tf.random_normal_initializer(1., 0.1), \
                 biases_initializer=tf.random_normal_initializer(0., 0.1))
             
@@ -108,17 +107,17 @@ class NAFAgent:
             axis_T = 0
             rows = []
 
-            # Identify diagonal 
-            for i in xrange(self.actions):
+            # Identify diagonal
+            for i in range(self.actions):
                 count = self.actions - i
 
                 # Create a row with the diagonal elements exponentiated.
                 diag = tf.exp(tf.slice(l, (0, axis_T), (-1, 1)))
-                # Create the "other" elements of the row.
+                # Create the "other" elements of the row
                 others = tf.slice(l, (0, axis_T + 1), (-1, count - 1))
 
                 # Assemble them into a full row.
-                row = tf.pad(tf.concat(1, (diag, others)), \
+                row = tf.pad(tf.concat((diag, others), axis=1), \
                                 ((0, 0), (i, 0)))
 
                 # Add each row to a list for L(x)
@@ -127,17 +126,17 @@ class NAFAgent:
                 axis_T += count
 
             # Assemble L(x) and matmul by its transpose.
-            networks['L'] = tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
-            networks['P'] = P = tf.batch_matmul(networks['L'], \
+            networks['L'] = tf.transpose(tf.stack(rows, axis=1), (0, 2, 1))
+            networks['P'] = P = tf.matmul(networks['L'], \
                 tf.transpose(networks['L'], (0, 2, 1)))
 
             mu_u = tf.expand_dims(networks['u'] - networks['mu'], -1)
 
             # Combine the terms
-            p_mu_u = tf.batch_matmul(P, mu_u, name='Pxmu_u')
-            p_mess = tf.batch_matmul(tf.transpose(mu_u, [0, 2, 1]), 
+            p_mu_u = tf.matmul(P, mu_u, name='Pxmu_u')
+            p_mess = tf.matmul(tf.transpose(mu_u, [0, 2, 1]), 
                 p_mu_u, name='mu_u_TxPxmu_u')
-            networks['A'] = tf.mul(-1./2., p_mess, name='A')
+            networks['A'] = tf.multiply(-1./2., p_mess, name='A')
 
             networks['Q'] = tf.add(networks['A'], networks['V'], name='Q_func')
 
@@ -171,7 +170,7 @@ class NAFAgent:
         if self.actions == 1:
             action = action[0][0] + np.random.normal(0, self.epsilon)
             if report:
-                print 'mu: {0}'.format(action)
+                print('mu: {0}'.format(action))
             
             # Bound the action
             if action > self.env.action_space.high[0]:
@@ -185,16 +184,17 @@ class NAFAgent:
                  feed_dict={self.network['nqn']['x']: [state]})
 
         if report:
-            print 'mu: {0}'.format(action)
-            print 'softmax: {0}'.format(action_sm)
+            print('mu: {0}'.format(action))
+            print('softmax: {0}'.format(action_sm))
         
         action_sm += np.random.normal(0, self.epsilon, self.actions)
         
         return np.argmax(action_sm)
     
     def update(self, state, action, reward, state_prime, done):
-        if done:
-            reward = -reward
+        #if done:
+            #reward = -reward
+            #print(reward)
 
         self.replay.append((state, action, reward, state_prime))
         if len(self.replay) > 1e6:
